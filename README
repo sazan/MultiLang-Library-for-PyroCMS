@@ -1,11 +1,22 @@
 /**
- * MultiLang Library
+ * MultiLang Library (BETA)
  *
  * @package		PyroCMS
  * @name		MultiLang Library
- * @description	A Library to make your PyroCMS modules truly multilingual.
+ * @description		A Library to make your PyroCMS modules truly multilingual.
  * @website		http://www.pyro.az
  */
+
+
+FEATURES
+
+- Makes your modules & content truly multilingual (UTF-8)
+- Only few lines of code to add to controllers and models (core PyroCMS Navigation module was translated in 10 minutes)
+- Extremely fast - most of job is done within your database query
+- Multilingual fields can have independent validation rules or take original field's ones
+- URL alias is automatically generated for "title" fields for future purposes (SEO, etc)
+- Unlimited quantity of languages
+- It's absolutely free
 
 
 INSTALLATION
