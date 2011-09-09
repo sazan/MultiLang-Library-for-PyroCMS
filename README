@@ -1,0 +1,214 @@
+/**
+ * MultiLang Library
+ *
+ * @package		PyroCMS
+ * @name		MultiLang Library
+ * @description	A Library to make your PyroCMS modules truly multilingual.
+ * @author		Renat K. (renatkalimulin@gmail.com)
+ * @website		http://www.pyro.az
+ */
+
+
+INSTALLATION
+(Current instruction is for PyroCMS 1.3.x but it should be working with the previous versions as well)
+
+Note: You may wish to disable unnecessary languages in Admin -> Settings -> General -> Public Languages as it's gonna be a huge forms if you leave all languages enabled by default. Also in this case you should modify your "system/cms/config/language.php" configuration file to reduce the number of languages to needed ones only.
+
+In archive you will also find a simple widget you can use to give your users an ability to choose the site language.
+
+Also I've included translated core Navigation module files (as of 1.3.2) as an example of this installation instructions.
+
+CORE HACK: in order to use caching feature of PyroCMS with MultiLang Library you will have to apply a small hack to the core library:
+
+	Open "system/cms/libraries/Pyrocache.php" and replace line # 110 with the following code:
+	
+	$cache_file = $property.DIRECTORY_SEPARATOR.do_hash(CURRENT_LANGUAGE.$method.serialize($arguments), 'sha1');
+	
+	Otherwise you will always be getting only the translated values from the cache.
+
+**********************************************************************
+
+1. Create a database table for our translations. Run the following SQL:
+
+	CREATE TABLE IF NOT EXISTS `default_translations` (
+	  `id` int(11) NOT NULL AUTO_INCREMENT,
+	  `lang` varchar(2) CHARACTER SET utf8 COLLATE utf8_unicode_ci DEFAULT NULL,
+	  `module` varchar(20) CHARACTER SET utf8 COLLATE utf8_unicode_ci DEFAULT 'none',
+	  `item_id` int(11) NOT NULL DEFAULT '0',
+	  `slug` varchar(255) CHARACTER SET utf8 COLLATE utf8_unicode_ci DEFAULT NULL,
+	  `key` varchar(100) CHARACTER SET utf8 COLLATE utf8_unicode_ci DEFAULT NULL,
+	  `text` text CHARACTER SET utf8 COLLATE utf8_unicode_ci,
+	  PRIMARY KEY (`id`),
+	  KEY `lang` (`lang`),
+	  KEY `module` (`module`),
+	  KEY `item_id` (`item_id`),
+	  KEY `key` (`key`)
+	) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COMMENT='Translations Table' AUTO_INCREMENT=1;
+	
+	
+2. Create helper database function (this is the way the library works and I 
+actually find it as the one of the best ways to get translated fields, because it will reduce many code writings as well as SQL queries). Using you SQL manager (like phpMyAdmin), select your PyroCMS database and then run:
+
+	DELIMITER $$
+	DROP FUNCTION IF EXISTS `translate`$$
+	CREATE FUNCTION translate (module_id VARCHAR(20), item_id INT, item_key VARCHAR(100), lang_id CHAR(2), original_text BLOB) RETURNS BLOB
+	BEGIN
+	DECLARE txt BLOB;
+	IF		(!LENGTH(module_id) OR
+			!LENGTH(item_id) OR
+			!LENGTH(item_key) OR
+			!LENGTH(lang_id))
+	THEN
+			RETURN "Multilang DB Helper: error in params!";
+	ELSEIF	item_key = "slug" THEN
+			SELECT	default_translations.slug
+			FROM	default_translations
+			WHERE	default_translations.module = module_id AND
+					default_translations.item_id = item_id AND
+					default_translations.key = "title" AND
+					default_translations.lang = lang_id
+			LIMIT	1
+			INTO 	txt;
+	ELSE
+			SET NAMES utf8;
+			SELECT	CONVERT(default_translations.text, BINARY)
+			FROM	default_translations
+			WHERE	default_translations.module = module_id AND
+					default_translations.item_id = item_id AND
+					default_translations.key = item_key AND
+					default_translations.lang = lang_id
+			LIMIT	1
+			INTO 	txt;
+	END IF;
+	RETURN IF(LENGTH(txt), txt, original_text);
+	END$$
+	DELIMITER ;
+
+3. Extract downloaded archive into your "addons/default" folder, so the structure be as follows:
+
+	1. addons/default/language/english/multilang_lang.php (Also use it as the template to create your own translations for your forms' labels)
+	2. addons/default/libraries/Multilang.php
+	3. addons/default/models/multilang_m.php
+
+4. Now we can start to translate our modules! Let's try to make the core module Navigation truly multilingual:
+
+	1. Open "system/cms/modules/navigation/controllers/admin.php"
+	2. Right after "$validation_rules" variable definition create multilingual rules for the fields you wish to be multilingual. Let's translate the "title" field of the link. Put the following code before "public function __construct()" method:
+	
+		private $multilang_rules = array(
+			'title'	=> array('same'),
+		);
+	
+	This will create the rule for the translated title field. You can use your own independent rules for your multilingual fields, and in this example we'll use the same rules as the original "title" field.
+	
+	3. Now load the library by putting the code below into the constructor method right after the "$this->lang->load('navigation');":
+	
+		$this->load->library('multilang');
+
+	4. Now lets init the library within our Create controller. On the top of the method, before the "if ($this->form_validation->run())" statement put:
+	
+		$this->data->multilang = $this->multilang->init($this->module, $this->multilang_rules);
+		
+		After the link has been successfully created lets save the translation as well - put the following code within the "if ($this->navigation_m->insert_link($_POST) > 0)" statement:
+		
+		$this->multilang->save();
+		
+	4.1 Init library for editing within Edit method. Right after ID check, before "$this->data->navigation_link = $this->navigation_m->get_link($id);" put:
+	
+		$this->data->multilang = $this->multilang->init($this->module, $this->multilang_rules, $id);
+		
+	4.2 To delete translations, put the following code within your "delete" method within  "if(!empty($id_array))" statement before or after "foreach" method:
+	
+		$this->multilang->delete($this->module, $id_array);
+		
+		Where "$id_array" is an array of the parent IDs to delete.
+		
+		That's it for controllers! Only 5 lines of code for the most controllers !
+	
+	5. Now, lets modify our models so we can get translated fields for viewing and manipulations:
+		
+		Open "models/navigation_m.php" model file and modify its methods...
+	
+		Use the following format for all your model's methods which are supposed to display data only (i.e. not for forms). In the "get" like queries use our Multilang SQL helper to get your fields translated: 'SELECT *, translate("navigation", id, "title", "'.CURRENT_LANGUAGE.'", title) AS title FROM navigation_links' (this is a complete query without a need to modify anything in it!).
+		
+		Note: "CURRENT_LANGUAGE" is the PyroCMS's core constant that shows the current language code, so check the brackets so this to be a constant!
+		
+		And in the queries that are supposed to pull data into your forms for editing, use the following approach:
+		
+		if ($this->method != 'edit')
+			$this->db->select('*, translate("navigation", id, "title", "'.CURRENT_LANGUAGE.'", title) AS title');
+
+		Note: If you leave model's methods used for editing the same style as your "get" methods used for displaying, the original fields data in your forms will be overwritten with the translated ones. Always exclude translation SQL helper from your "edit" queries and methods!
+		
+		SQL helper parameters:
+		
+			translate(module_id, item_id, item_key, lang_id, original_text)
+			
+			module_id	= module name, like: "navigation" or you can use $this->module variable
+			
+			item_id		= original field's database ID (can be numeric or query relative, i.e. RowID)
+			
+			item_key	= field name we want to get the translation for, i.e. "title"
+			
+			lang_id		= language of translation, 2 chars, i.e. "ru". Put CURRENT_LANGUAGE constant to always get the translation corresponding to the actual site lang
+			
+			original_text= pass the text that will be returned if there is no translations found. Use original field's text so you will get untranslated field data and not an empty string
+			
+		
+		So actually there are 3 navigation module's model methods to modify:
+		
+		get_link:
+		
+			put before "$query" variable:
+			
+			if ($this->method != 'edit')
+				$this->db->select('*, translate("navigation", id, "title", "'.CURRENT_LANGUAGE.'", title) AS title');
+		
+		
+		get_url:
+		
+			put before "$query" variable:
+			
+			if ($this->method != 'edit')
+				$this->db->select('*, translate("navigation", id, "title", "'.CURRENT_LANGUAGE.'", title) AS title');
+				
+				
+		get_link_tree:
+			
+			put after line "$all_links = $this->db->where('navigation_group_id', $group)"
+			
+			->select('*, translate("navigation", id, "title", "'.CURRENT_LANGUAGE.'", title) AS title')
+	
+
+	6. Now, lets modify our template files so we can see and manipulate the fields within the forms:
+	
+		In "views/admin/ajax/form.php" form view file, right after "title" field definitions, put:
+		
+			<?php if (isset($multilang->title)): ?>
+				<?php foreach ($multilang->title as $m_lang => $m_data): ?>
+				
+					<li class="<?php echo alternator('', 'even'); ?>">
+						<label for="<?php echo $m_data['name'];?>"><?php echo lang('nav_title_label');?> (<?php echo $m_data['lang'];?>)</label>
+						<?php echo form_input($m_data['name'], $m_data['value'], 'maxlength="50" class="text"'); ?>
+						<span class="required-icon tooltip"><?php echo lang('required_label');?></span>
+					</li>
+				
+				<?php endforeach; ?>
+			<?php endif; ?>
+	
+	
+Less than 10 minutes and...
+Voila! You are now have navigation module truly multilingual!
+Test it by entering admin page: 
+
+http://pyrocms_url/admin/navigation?lang=your_langs_2_char_abbreviation i.e.:
+http://pyrocms_url/admin/navigation?lang=ru
+
+
+Note: Don't forget to create required language files for Multilang Library and to put it in appropriate folder (addons/default/language/your_language/multilang_lang.php), otherwise you will get an error: 
+	
+	Unable to load the requested language file: language/your_language/multilang_lang.php
+
+
+Feel free to contact me with the questions and suggestions about the library or to hire me for your projects. :)
+Good luck!
